@@ -1,0 +1,55 @@
+{
+  "name": "mgws",
+  "version": "0.0.1",
+  "description": "Multi-account safety wrapper for the Google Workspace CLI",
+  "type": "module",
+  "bin": {
+    "mgws": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run lint && npm run test && npm run build",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "prepack": "npm run check",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "packageManager": "npm@11.18.0",
+  "dependencies": {
+    "@googleworkspace/cli": "0.22.5",
+    "commander": "14.0.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.5",
+    "@types/node": "26.1.1",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "allowScripts": {
+    "@googleworkspace/cli@0.22.5": true
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rarexlabs/mgws.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rarexlabs/mgws/issues"
+  },
+  "homepage": "https://github.com/rarexlabs/mgws#readme",
+  "license": "MIT",
+  "keywords": [
+    "google-workspace",
+    "gws",
+    "multi-account",
+    "cli"
+  ]
+}
