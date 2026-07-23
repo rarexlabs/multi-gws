@@ -40,12 +40,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rarexlabs/mgws.git"
+    "url": "git+https://github.com/rarexlabs/multi-gws.git"
   },
   "bugs": {
-    "url": "https://github.com/rarexlabs/mgws/issues"
+    "url": "https://github.com/rarexlabs/multi-gws/issues"
   },
-  "homepage": "https://github.com/rarexlabs/mgws#readme",
+  "homepage": "https://github.com/rarexlabs/multi-gws#readme",
   "license": "MIT",
   "keywords": [
     "google-workspace",
