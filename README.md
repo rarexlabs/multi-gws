@@ -1,6 +1,6 @@
-# mgws
+# multi-gws
 
-`mgws` is a multi-account safety wrapper for the [Google Workspace CLI](https://github.com/googleworkspace/cli). It selects repository-local account credentials, blocks permanent deletion, and requires confirmation for consequential operations while forwarding the rest of the `gws` command surface.
+`multi-gws` provides the `mgws` command, a multi-account safety wrapper for the [Google Workspace CLI](https://github.com/googleworkspace/cli). It selects repository-local account credentials, blocks permanent deletion, and requires confirmation for consequential operations while forwarding the rest of the `gws` command surface.
 
 ## Requirements
 
