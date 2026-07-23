@@ -21,6 +21,23 @@ const DRIVE_CONFIRM_METHODS = new Set([
   "permissions:update",
   "permissions:delete",
 ]);
+const CALENDAR_PROHIBITED_METHODS = new Set([
+  "calendars:clear",
+  "calendars:delete",
+]);
+const CALENDAR_CONFIRM_METHODS = new Set([
+  "acl:insert",
+  "acl:update",
+  "acl:patch",
+  "acl:delete",
+  "events:insert",
+  "events:import",
+  "events:quickAdd",
+  "events:update",
+  "events:patch",
+  "events:move",
+  "events:delete",
+]);
 const GWS_VALUE_FLAGS = new Set([
   "--api-version",
   "--format",
@@ -104,6 +121,30 @@ export function classifyGwsCommand(args: readonly string[]): CommandPolicy {
       return {
         action: "confirm",
         reason: "Drive permission changes require explicit confirmation",
+      };
+    }
+  }
+
+  if (service === "calendar") {
+    if (resource === "+insert") {
+      return {
+        action: "confirm",
+        reason: "Creating Calendar events requires explicit confirmation",
+      };
+    }
+
+    const operation = `${resource ?? ""}:${collection ?? ""}`;
+    if (CALENDAR_PROHIBITED_METHODS.has(operation)) {
+      return {
+        action: "prohibit",
+        reason: "Permanently clearing or deleting calendars is prohibited",
+      };
+    }
+    if (CALENDAR_CONFIRM_METHODS.has(operation)) {
+      return {
+        action: "confirm",
+        reason:
+          "Calendar event and sharing changes require explicit confirmation",
       };
     }
   }

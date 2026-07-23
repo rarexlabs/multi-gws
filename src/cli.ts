@@ -73,19 +73,34 @@ account
       .argParser(accessLevel)
       .makeOptionMandatory(),
   )
+  .addOption(
+    new Option("--calendar <level>", "Calendar permission level")
+      .argParser(accessLevel)
+      .makeOptionMandatory(),
+  )
   .option("--no-login", "create account state without starting OAuth")
   .action(
     (
       email: string,
-      options: { gmail: string; drive: string; login: boolean },
+      options: {
+        gmail: string;
+        drive: string;
+        calendar: string;
+        login: boolean;
+      },
     ) => {
-      if (!isAccessLevel(options.gmail) || !isAccessLevel(options.drive)) {
+      if (
+        !isAccessLevel(options.gmail) ||
+        !isAccessLevel(options.drive) ||
+        !isAccessLevel(options.calendar)
+      ) {
         throw new CliError(EXIT.usage, "invalid permission level");
       }
       process.exitCode = addAccount({
         email,
         gmail: options.gmail,
         drive: options.drive,
+        calendar: options.calendar,
         login: options.login,
       });
     },

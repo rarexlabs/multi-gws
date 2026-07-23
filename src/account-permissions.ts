@@ -5,6 +5,7 @@ export type AccessLevel = (typeof ACCESS_LEVELS)[number];
 export interface AccountAccess {
   gmail: AccessLevel;
   drive: AccessLevel;
+  calendar: AccessLevel;
 }
 
 const GMAIL_SCOPES: Record<AccessLevel, readonly string[]> = {
@@ -23,6 +24,12 @@ const DRIVE_SCOPES: Record<AccessLevel, readonly string[]> = {
   manage: ["https://www.googleapis.com/auth/drive"],
 };
 
+const CALENDAR_SCOPES: Record<AccessLevel, readonly string[]> = {
+  none: [],
+  read: ["https://www.googleapis.com/auth/calendar.readonly"],
+  manage: ["https://www.googleapis.com/auth/calendar"],
+};
+
 export function isAccessLevel(value: string): value is AccessLevel {
   return ACCESS_LEVELS.includes(value as AccessLevel);
 }
@@ -30,10 +37,17 @@ export function isAccessLevel(value: string): value is AccessLevel {
 export function resolveAccountScopes({
   gmail,
   drive,
+  calendar,
 }: AccountAccess): string[] {
-  if (gmail === "none" && drive === "none") {
-    throw new RangeError("at least one of Gmail or Drive must be enabled");
+  if (gmail === "none" && drive === "none" && calendar === "none") {
+    throw new RangeError(
+      "at least one of Gmail, Drive, or Calendar must be enabled",
+    );
   }
 
-  return [...GMAIL_SCOPES[gmail], ...DRIVE_SCOPES[drive]];
+  return [
+    ...GMAIL_SCOPES[gmail],
+    ...DRIVE_SCOPES[drive],
+    ...CALENDAR_SCOPES[calendar],
+  ];
 }

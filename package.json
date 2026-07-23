@@ -1,6 +1,6 @@
 {
   "name": "multi-gws",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Multi-account safety wrapper for the Google Workspace CLI",
   "type": "module",
   "bin": {

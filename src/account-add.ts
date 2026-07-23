@@ -59,13 +59,14 @@ export function addAccount({
   email,
   gmail,
   drive,
+  calendar,
   login,
   workspaceRoot,
 }: AddAccountOptions): number {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new CliError(EXIT.usage, `invalid email address: ${email}`);
   }
-  const scopes = resolveAccountScopes({ gmail, drive });
+  const scopes = resolveAccountScopes({ gmail, drive, calendar });
   const slug = accountSlug(email);
   const root = resolve(workspaceRoot ?? process.cwd());
   const credentialsDir = join(root, "credentials");
@@ -116,7 +117,7 @@ export function addAccount({
   const saveAccessProfile = (): void => {
     writeFileSync(
       accessProfile,
-      `${JSON.stringify({ email, gmail, drive }, null, 2)}\n`,
+      `${JSON.stringify({ email, gmail, drive, calendar }, null, 2)}\n`,
       {
         mode: 0o600,
       },
@@ -127,6 +128,7 @@ export function addAccount({
   console.log(`Account slug: ${slug}`);
   console.log(`Gmail access: ${gmail}`);
   console.log(`Drive access: ${drive}`);
+  console.log(`Calendar access: ${calendar}`);
   if (!login) {
     saveAccessProfile();
     console.log("Skipped OAuth login (--no-login).");

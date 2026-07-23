@@ -16,6 +16,17 @@ const cases: Array<[string[], "allow" | "confirm" | "prohibit"]> = [
   [["drive", "--api-version", "v3", "files", "delete"], "prohibit"],
   [["drive", "files", "--api-version", "v3", "delete"], "prohibit"],
   [["drive", "files", "emptyTrash"], "prohibit"],
+  [["calendar", "events", "list"], "allow"],
+  [["calendar", "+agenda"], "allow"],
+  [["calendar", "+insert"], "confirm"],
+  [["calendar", "events", "insert"], "confirm"],
+  [["calendar", "events", "import"], "confirm"],
+  [["calendar", "events", "update"], "confirm"],
+  [["calendar", "events", "delete"], "confirm"],
+  [["calendar", "acl", "insert"], "confirm"],
+  [["calendar", "acl", "delete"], "confirm"],
+  [["calendar", "calendars", "clear"], "prohibit"],
+  [["calendar:v3", "calendars", "delete"], "prohibit"],
 ];
 
 describe("classifyGwsCommand", () => {

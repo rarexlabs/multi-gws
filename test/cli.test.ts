@@ -94,6 +94,24 @@ describe("mgws run", () => {
     const configDir = await realpath(join(workspace, "accounts/test/gws"));
     expect(confirmed.stdout).toBe(`config=${configDir}\ngmail\n+send\n`);
 
+    const unconfirmedCalendar = run(
+      workspace,
+      ["run", "test", "calendar", "events", "insert"],
+      env,
+    );
+    expect(unconfirmedCalendar.status).toBe(77);
+    expect(unconfirmedCalendar.stderr).toMatch(/explicit confirmation/);
+
+    const confirmedCalendar = run(
+      workspace,
+      ["run", "test", "--confirm", "calendar", "events", "insert"],
+      env,
+    );
+    expect(confirmedCalendar.status, confirmedCalendar.stderr).toBe(0);
+    expect(confirmedCalendar.stdout).toBe(
+      `config=${configDir}\ncalendar\nevents\ninsert\n`,
+    );
+
     const forwardedHelp = run(
       workspace,
       ["run", "test", "drive", "files", "list", "--help"],
@@ -165,6 +183,7 @@ describe("mgws account add", () => {
         email,
         "--gmail=read",
         "--drive=none",
+        "--calendar=manage",
         "--no-login",
       ]);
 
@@ -200,6 +219,7 @@ describe("mgws account add", () => {
       email: "a+b@example.com",
       gmail: "read",
       drive: "none",
+      calendar: "manage",
     });
   });
 
@@ -220,6 +240,7 @@ describe("mgws account add", () => {
       "person@example.com",
       "--gmail=read",
       "--drive=none",
+      "--calendar=none",
       "--no-login",
     ]);
 

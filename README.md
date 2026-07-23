@@ -18,7 +18,7 @@ mgws run <account-slug> <gws arguments...>
 Add or reconnect an account:
 
 ```bash
-mgws account add <email-address> --gmail=<none|read|manage> --drive=<none|read|manage>
+mgws account add <email-address> --gmail=<none|read|manage> --drive=<none|read|manage> --calendar=<none|read|manage>
 ```
 
 `mgws` treats the current working directory as the workspace. Shared OAuth configuration belongs at `credentials/google-oauth-client.json`; account state is stored under `accounts/<account-slug>/gws/`.
