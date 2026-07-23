@@ -32,6 +32,20 @@ npm run check
 
 The package uses TypeScript 7, Vitest, and Biome. Commander provides the CLI structure while `mgws run` preserves trailing `gws` arguments for forwarding.
 
+## Releasing
+
+Maintainers can run `npm run release` from a clean `main` branch. The command
+publishes the current version when it is not on npm yet; subsequent runs bump
+the patch version. Use `npm run release -- minor` or `npm run release -- major`
+to select a larger version bump. The workflow verifies the package, creates and
+pushes the Git tag, and publishes to npm using the current npm credentials.
+
+When npm requires a one-time password, provide the current code for that release:
+
+```bash
+NPM_CONFIG_OTP=<code> npm run release
+```
+
 ## License
 
 MIT
