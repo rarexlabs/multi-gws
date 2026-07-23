@@ -102,9 +102,8 @@ if (branch !== "main") {
 
 capture("git", ["remote", "get-url", "origin"]);
 run(npmCommand, ["whoami"]);
-run(npmCommand, ["test"]);
-run(npmCommand, ["run", "check:ci"]);
-run(npmCommand, ["pack", "--dry-run"]);
+run(npmCommand, ["run", "check"]);
+run(npmCommand, ["pack", "--dry-run", "--ignore-scripts"]);
 assertCleanWorktree();
 
 let { name, version } = packageMetadata();
@@ -121,7 +120,7 @@ if (currentVersionIsPublished || bumpWasExplicit) {
 
 const tag = `v${version}`;
 ensureTag(tag);
-run("git", ["push", "origin", "main", "--follow-tags"]);
 run(npmCommand, ["publish"]);
+run("git", ["push", "origin", "main", "--follow-tags"]);
 
 console.log(`\nReleased ${name}@${version} (${tag}).`);
