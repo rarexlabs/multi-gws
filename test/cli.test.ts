@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -42,6 +42,34 @@ function run(workspace: string, args: string[], env: NodeJS.ProcessEnv = {}) {
     encoding: "utf8",
     env: { ...process.env, ...env },
   });
+}
+
+async function waitForFile(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await lstat(path);
+      return;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !("code" in error) ||
+        error.code !== "ENOENT"
+      ) {
+        throw error;
+      }
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
+  }
+  throw new Error(`timed out waiting for file: ${path}`);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 beforeAll(() => {
@@ -225,6 +253,100 @@ describe("mgws run", () => {
 });
 
 describe("mgws account add", () => {
+  it("times out OAuth login and terminates its process group", async () => {
+    const workspace = await createWorkspace();
+    const childPidFile = join(workspace, "oauth-child.pid");
+    const fakeGws = await createFakeGws(
+      workspace,
+      `echo $$ > '${childPidFile}'\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "account",
+        "add",
+        "person@example.com",
+        "--gmail=read",
+        "--drive=none",
+        "--calendar=none",
+      ],
+      {
+        cwd: workspace,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GWS_EXECUTABLE: fakeGws,
+          MGWS_OAUTH_TIMEOUT_MS: "500",
+        },
+        timeout: 2_000,
+      },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(69);
+    expect(result.stderr).toMatch(/OAuth login timed out after 500ms/);
+    const childPid = Number.parseInt(await readFile(childPidFile, "utf8"), 10);
+    expect(isProcessAlive(childPid)).toBe(false);
+    await expect(
+      lstat(
+        join(
+          workspace,
+          "accounts",
+          accountSlug("person@example.com"),
+          "gws/access.json",
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("forwards termination to an in-progress OAuth login", async () => {
+    const workspace = await createWorkspace();
+    const childPidFile = join(workspace, "oauth-child.pid");
+    const fakeGws = await createFakeGws(
+      workspace,
+      `echo $$ > '${childPidFile}'\ntrap 'exit 0' TERM INT\nwhile :; do sleep 1; done`,
+    );
+    const child = spawn(
+      process.execPath,
+      [
+        cli,
+        "account",
+        "add",
+        "person@example.com",
+        "--gmail=read",
+        "--drive=none",
+        "--calendar=none",
+      ],
+      {
+        cwd: workspace,
+        stdio: "ignore",
+        env: { ...process.env, GWS_EXECUTABLE: fakeGws },
+      },
+    );
+
+    await waitForFile(childPidFile);
+    const oauthPid = Number.parseInt(await readFile(childPidFile, "utf8"), 10);
+    try {
+      child.kill("SIGTERM");
+      const exit = await new Promise<{
+        code: number | null;
+        signal: NodeJS.Signals | null;
+      }>((resolveExit) => {
+        child.once("exit", (code, signal) => resolveExit({ code, signal }));
+      });
+      expect(exit.signal).toBeNull();
+      expect(exit.code).toBe(143);
+      expect(isProcessAlive(oauthPid)).toBe(false);
+    } finally {
+      if (isProcessAlive(oauthPid)) process.kill(oauthPid, "SIGTERM");
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    }
+  });
+
   it("creates private, collision-safe account state", async () => {
     const workspace = await createWorkspace();
     const add = (email: string) =>

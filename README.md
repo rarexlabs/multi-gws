@@ -21,6 +21,11 @@ Add or reconnect an account:
 mgws account add <email-address> --gmail=<none|read|manage> --drive=<none|read|manage> --calendar=<none|read|manage>
 ```
 
+Account authorization streams the Google OAuth URL to the terminal and waits up
+to five minutes for the browser callback. `Ctrl-C` and termination signals are
+forwarded to the complete authorization process tree. Set
+`MGWS_OAUTH_TIMEOUT_MS` to a positive integer to override the timeout.
+
 `mgws` treats the current working directory as the workspace. Shared OAuth configuration belongs at `credentials/google-oauth-client.json`; account state is stored under `accounts/<account-slug>/gws/`.
 
 ## Development

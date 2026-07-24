@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -16,6 +16,183 @@ export interface AddAccountOptions extends AccountAccess {
   email: string;
   login: boolean;
   workspaceRoot?: string;
+}
+
+const DEFAULT_OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const OAUTH_KILL_GRACE_MS = 1000;
+const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM"] as const;
+type ForwardedSignal = (typeof FORWARDED_SIGNALS)[number];
+
+function oauthTimeoutMs(): number {
+  const configured = process.env.MGWS_OAUTH_TIMEOUT_MS;
+  if (configured === undefined) return DEFAULT_OAUTH_TIMEOUT_MS;
+  if (!/^[1-9][0-9]*$/.test(configured)) {
+    throw new CliError(
+      EXIT.usage,
+      "MGWS_OAUTH_TIMEOUT_MS must be a positive integer",
+    );
+  }
+  const timeout = Number(configured);
+  if (!Number.isSafeInteger(timeout)) {
+    throw new CliError(
+      EXIT.usage,
+      "MGWS_OAUTH_TIMEOUT_MS must be a positive integer",
+    );
+  }
+  return timeout;
+}
+
+function terminateProcessTree(
+  child: ChildProcess,
+  signal: ForwardedSignal | "SIGKILL",
+): void {
+  if (child.pid === undefined) return;
+  try {
+    if (process.platform === "win32") {
+      spawnSync("taskkill", ["/pid", child.pid.toString(), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch (error) {
+    if (errorCode(error) !== "ESRCH") throw error;
+  }
+}
+
+function runOauthLogin(
+  root: string,
+  slug: string,
+  scopes: readonly string[],
+): Promise<number> {
+  const timeoutMs = oauthTimeoutMs();
+  console.log(
+    `Waiting up to ${timeoutMs}ms for OAuth approval. Press Ctrl-C to cancel.`,
+  );
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(
+      process.execPath,
+      [
+        process.argv[1] ?? "mgws",
+        "run",
+        slug,
+        "auth",
+        "login",
+        "--scopes",
+        scopes.join(","),
+      ],
+      {
+        cwd: root,
+        detached: process.platform !== "win32",
+        stdio: "inherit",
+      },
+    );
+    let completed = false;
+    let terminationError: CliError | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+
+    const timeoutTimer = setTimeout(() => {
+      requestTermination(
+        "SIGTERM",
+        new CliError(
+          EXIT.unavailable,
+          `OAuth login timed out after ${timeoutMs}ms`,
+        ),
+      );
+    }, timeoutMs);
+
+    const signalHandlers = new Map<ForwardedSignal, () => void>();
+
+    const cleanup = (): void => {
+      clearTimeout(timeoutTimer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+      for (const [signal, handler] of signalHandlers) {
+        process.removeListener(signal, handler);
+      }
+    };
+
+    const reject = (error: CliError): void => {
+      if (completed) return;
+      completed = true;
+      cleanup();
+      rejectPromise(error);
+    };
+
+    const requestTermination = (
+      signal: ForwardedSignal,
+      error: CliError,
+    ): void => {
+      if (completed || terminationError !== undefined) return;
+      terminationError = error;
+      try {
+        terminateProcessTree(child, signal);
+      } catch (terminationFailure) {
+        reject(
+          new CliError(
+            EXIT.unavailable,
+            `could not terminate OAuth login: ${
+              terminationFailure instanceof Error
+                ? terminationFailure.message
+                : String(terminationFailure)
+            }`,
+          ),
+        );
+        return;
+      }
+      killTimer = setTimeout(() => {
+        try {
+          terminateProcessTree(child, "SIGKILL");
+        } catch {
+          // The close handler reports the original timeout or cancellation.
+        }
+      }, OAUTH_KILL_GRACE_MS);
+      killTimer.unref();
+    };
+
+    for (const signal of FORWARDED_SIGNALS) {
+      const handler = (): void => {
+        requestTermination(
+          signal,
+          new CliError(
+            signal === "SIGINT" ? 130 : 143,
+            `OAuth login cancelled by ${signal}`,
+          ),
+        );
+      };
+      signalHandlers.set(signal, handler);
+      process.once(signal, handler);
+    }
+
+    child.once("error", (error) => {
+      reject(
+        new CliError(
+          EXIT.unavailable,
+          `could not start OAuth login: ${error.message}`,
+        ),
+      );
+    });
+    child.once("close", (status, signal) => {
+      if (completed) return;
+      if (terminationError !== undefined) {
+        reject(terminationError);
+        return;
+      }
+      completed = true;
+      cleanup();
+      if (status !== null) {
+        resolvePromise(status);
+        return;
+      }
+      rejectPromise(
+        new CliError(
+          1,
+          `OAuth login terminated by signal ${signal ?? "unknown"}`,
+        ),
+      );
+    });
+  });
 }
 
 function isFile(path: string): boolean {
@@ -78,14 +255,14 @@ export function accountSlug(email: string): string {
   return `${readableSlug}-${fingerprint}`;
 }
 
-export function addAccount({
+export async function addAccount({
   email,
   gmail,
   drive,
   calendar,
   login,
   workspaceRoot,
-}: AddAccountOptions): number {
+}: AddAccountOptions): Promise<number> {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new CliError(EXIT.usage, `invalid email address: ${email}`);
   }
@@ -160,31 +337,7 @@ export function addAccount({
     return 0;
   }
 
-  const result = spawnSync(
-    process.execPath,
-    [
-      process.argv[1] ?? "mgws",
-      "run",
-      slug,
-      "auth",
-      "login",
-      "--scopes",
-      scopes.join(","),
-    ],
-    { cwd: root, stdio: "inherit" },
-  );
-  if (result.error) {
-    throw new CliError(
-      EXIT.unavailable,
-      `could not start OAuth login: ${result.error.message}`,
-    );
-  }
-  if (result.status !== null) {
-    if (result.status === 0) saveAccessProfile();
-    return result.status;
-  }
-  throw new CliError(
-    1,
-    `OAuth login terminated by signal ${result.signal ?? "unknown"}`,
-  );
+  const status = await runOauthLogin(root, slug, scopes);
+  if (status === 0) saveAccessProfile();
+  return status;
 }

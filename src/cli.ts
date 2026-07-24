@@ -80,7 +80,7 @@ account
   )
   .option("--no-login", "create account state without starting OAuth")
   .action(
-    (
+    async (
       email: string,
       options: {
         gmail: string;
@@ -96,7 +96,7 @@ account
       ) {
         throw new CliError(EXIT.usage, "invalid permission level");
       }
-      process.exitCode = addAccount({
+      process.exitCode = await addAccount({
         email,
         gmail: options.gmail,
         drive: options.drive,
@@ -125,7 +125,7 @@ try {
       gwsArguments,
     });
   } else {
-    program.parse();
+    await program.parseAsync();
   }
 } catch (error) {
   if (error instanceof CliError) {
