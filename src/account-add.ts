@@ -37,6 +37,29 @@ function pathExists(path: string): boolean {
   }
 }
 
+function ensurePrivateDirectory(path: string): void {
+  try {
+    mkdirSync(path, { mode: 0o700 });
+  } catch (error) {
+    if (errorCode(error) !== "EEXIST") throw error;
+  }
+
+  const directory = lstatSync(path);
+  if (!directory.isDirectory() || directory.isSymbolicLink()) {
+    throw new CliError(EXIT.noPermission, `unsafe account path: ${path}`);
+  }
+  chmodSync(path, 0o700);
+}
+
+function ensureSafeFileIfPresent(path: string): void {
+  if (!pathExists(path)) return;
+
+  const file = lstatSync(path);
+  if (!file.isFile() || file.isSymbolicLink()) {
+    throw new CliError(EXIT.noPermission, `unsafe account path: ${path}`);
+  }
+}
+
 export function accountSlug(email: string): string {
   const normalizedEmail = email.toLowerCase();
   const readableSlug = normalizedEmail
@@ -71,7 +94,8 @@ export function addAccount({
   const root = resolve(workspaceRoot ?? process.cwd());
   const credentialsDir = join(root, "credentials");
   const oauthClient = join(credentialsDir, "google-oauth-client.json");
-  const accountDir = join(root, "accounts", slug);
+  const accountsDir = join(root, "accounts");
+  const accountDir = join(accountsDir, slug);
   const configDir = join(accountDir, "gws");
   const accountOauthClient = join(configDir, "client_secret.json");
   const accessProfile = join(configDir, "access.json");
@@ -95,9 +119,9 @@ export function addAccount({
   chmodSync(credentialsDir, 0o700);
   chmodSync(oauthClient, 0o600);
 
-  mkdirSync(configDir, { recursive: true, mode: 0o700 });
-  chmodSync(accountDir, 0o700);
-  chmodSync(configDir, 0o700);
+  ensurePrivateDirectory(accountsDir);
+  ensurePrivateDirectory(accountDir);
+  ensurePrivateDirectory(configDir);
 
   if (pathExists(accountOauthClient)) {
     const accountOauthClientFile = lstatSync(accountOauthClient);
@@ -113,6 +137,7 @@ export function addAccount({
   }
   copyFileSync(oauthClient, accountOauthClient);
   chmodSync(accountOauthClient, 0o600);
+  ensureSafeFileIfPresent(accessProfile);
 
   const saveAccessProfile = (): void => {
     writeFileSync(

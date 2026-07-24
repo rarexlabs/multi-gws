@@ -12,6 +12,7 @@ const GMAIL_PROHIBITED_METHODS = new Set([
 ]);
 const GMAIL_CONFIRM_METHODS = new Set(["drafts:send", "messages:send"]);
 const DRIVE_PROHIBITED_METHODS = new Set([
+  "drives:delete",
   "files:delete",
   "files:emptyTrash",
   "revisions:delete",
@@ -30,16 +31,19 @@ const CALENDAR_CONFIRM_METHODS = new Set([
   "acl:update",
   "acl:patch",
   "acl:delete",
-  "events:insert",
-  "events:import",
-  "events:quickAdd",
   "events:update",
   "events:patch",
   "events:move",
   "events:delete",
 ]);
+const CALENDAR_CREATE_METHODS = new Set([
+  "events:insert",
+  "events:import",
+  "events:quickAdd",
+]);
 const GWS_VALUE_FLAGS = new Set([
   "--api-version",
+  "--attendees",
   "--format",
   "--json",
   "--output",
@@ -79,7 +83,72 @@ function positionalArguments(args: readonly string[]): string[] {
   return positional;
 }
 
-export function classifyGwsCommand(args: readonly string[]): CommandPolicy {
+function flagValues(args: readonly string[], flag: string): string[] {
+  const values: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === flag) {
+      const value = args[index + 1];
+      if (value !== undefined) {
+        values.push(value);
+        index += 1;
+      }
+    } else if (argument?.startsWith(`${flag}=`)) {
+      values.push(argument.slice(flag.length + 1));
+    }
+  }
+
+  return values;
+}
+
+function hasExternalAttendees(
+  args: readonly string[],
+  selfEmail: string | undefined,
+): boolean {
+  const normalizedSelf = selfEmail?.trim().toLowerCase();
+  const isExternal = (email: string): boolean =>
+    email.trim().toLowerCase() !== normalizedSelf;
+
+  for (const value of flagValues(args, "--attendees")) {
+    for (const email of value.split(",").filter((entry) => entry.length > 0)) {
+      if (isExternal(email)) return true;
+    }
+  }
+
+  for (const value of flagValues(args, "--json")) {
+    let body: unknown;
+    try {
+      body = JSON.parse(value);
+    } catch {
+      return true;
+    }
+    if (typeof body !== "object" || body === null || !("attendees" in body)) {
+      continue;
+    }
+
+    const attendees = body.attendees;
+    if (!Array.isArray(attendees)) return true;
+    for (const attendee of attendees) {
+      if (
+        typeof attendee !== "object" ||
+        attendee === null ||
+        !("email" in attendee) ||
+        typeof attendee.email !== "string" ||
+        isExternal(attendee.email)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export function classifyGwsCommand(
+  args: readonly string[],
+  selfEmail?: string,
+): CommandPolicy {
   const [serviceWithVersion, resource, collection, method] =
     positionalArguments(args);
   const service = serviceWithVersion?.split(":", 1)[0];
@@ -127,10 +196,13 @@ export function classifyGwsCommand(args: readonly string[]): CommandPolicy {
 
   if (service === "calendar") {
     if (resource === "+insert") {
-      return {
-        action: "confirm",
-        reason: "Creating Calendar events requires explicit confirmation",
-      };
+      return hasExternalAttendees(args, selfEmail)
+        ? {
+            action: "confirm",
+            reason:
+              "Inviting other people to Calendar events requires explicit confirmation",
+          }
+        : { action: "allow" };
     }
 
     const operation = `${resource ?? ""}:${collection ?? ""}`;
@@ -139,6 +211,15 @@ export function classifyGwsCommand(args: readonly string[]): CommandPolicy {
         action: "prohibit",
         reason: "Permanently clearing or deleting calendars is prohibited",
       };
+    }
+    if (CALENDAR_CREATE_METHODS.has(operation)) {
+      return hasExternalAttendees(args, selfEmail)
+        ? {
+            action: "confirm",
+            reason:
+              "Inviting other people to Calendar events requires explicit confirmation",
+          }
+        : { action: "allow" };
     }
     if (CALENDAR_CONFIRM_METHODS.has(operation)) {
       return {

@@ -10,6 +10,7 @@ const cases: Array<[string[], "allow" | "confirm" | "prohibit"]> = [
   [["drive", "files", "list"], "allow"],
   [["drive", "permissions", "create"], "confirm"],
   [["drive", "files", "delete"], "prohibit"],
+  [["drive", "drives", "delete"], "prohibit"],
   [["drive:v3", "files", "delete"], "prohibit"],
   [["--api-version", "v3", "drive", "files", "delete"], "prohibit"],
   [["--api-version=v3", "drive", "files", "delete"], "prohibit"],
@@ -18,9 +19,10 @@ const cases: Array<[string[], "allow" | "confirm" | "prohibit"]> = [
   [["drive", "files", "emptyTrash"], "prohibit"],
   [["calendar", "events", "list"], "allow"],
   [["calendar", "+agenda"], "allow"],
-  [["calendar", "+insert"], "confirm"],
-  [["calendar", "events", "insert"], "confirm"],
-  [["calendar", "events", "import"], "confirm"],
+  [["calendar", "+insert"], "allow"],
+  [["calendar", "events", "insert"], "allow"],
+  [["calendar", "events", "import"], "allow"],
+  [["calendar", "events", "quickAdd"], "allow"],
   [["calendar", "events", "update"], "confirm"],
   [["calendar", "events", "delete"], "confirm"],
   [["calendar", "acl", "insert"], "confirm"],
@@ -32,5 +34,48 @@ const cases: Array<[string[], "allow" | "confirm" | "prohibit"]> = [
 describe("classifyGwsCommand", () => {
   it.each(cases)("%s is %s", (args, expected) => {
     expect(classifyGwsCommand(args).action).toBe(expected);
+  });
+
+  it.each([
+    ["helper flag", ["calendar", "+insert", "--attendees", "me@example.com"]],
+    [
+      "inline helper flag",
+      ["calendar", "+insert", "--attendees=ME@example.com"],
+    ],
+    [
+      "API body",
+      [
+        "calendar",
+        "events",
+        "insert",
+        "--json",
+        '{"attendees":[{"email":"me@example.com"}]}',
+      ],
+    ],
+  ])("allows self-only attendees from a %s", (_label, args) => {
+    expect(classifyGwsCommand(args, "me@example.com").action).toBe("allow");
+  });
+
+  it.each([
+    [
+      "helper flag",
+      [
+        "calendar",
+        "+insert",
+        "--attendees",
+        "me@example.com,other@example.com",
+      ],
+    ],
+    [
+      "API body",
+      [
+        "calendar",
+        "events",
+        "insert",
+        '--json={"attendees":[{"email":"other@example.com"}]}',
+      ],
+    ],
+  ])("confirms external attendees from a %s", (_label, args) => {
+    expect(classifyGwsCommand(args, "me@example.com").action).toBe("confirm");
   });
 });

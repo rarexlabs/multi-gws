@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { accountSlug } from "../src/account-add.js";
 
 const cli = resolve("dist/cli.js");
 const workspaces: string[] = [];
@@ -94,13 +95,15 @@ describe("mgws run", () => {
     const configDir = await realpath(join(workspace, "accounts/test/gws"));
     expect(confirmed.stdout).toBe(`config=${configDir}\ngmail\n+send\n`);
 
-    const unconfirmedCalendar = run(
+    const personalCalendarEvent = run(
       workspace,
       ["run", "test", "calendar", "events", "insert"],
       env,
     );
-    expect(unconfirmedCalendar.status).toBe(77);
-    expect(unconfirmedCalendar.stderr).toMatch(/explicit confirmation/);
+    expect(personalCalendarEvent.status, personalCalendarEvent.stderr).toBe(0);
+    expect(personalCalendarEvent.stdout).toBe(
+      `config=${configDir}\ncalendar\nevents\ninsert\n`,
+    );
 
     const confirmedCalendar = run(
       workspace,
@@ -170,6 +173,54 @@ describe("mgws run", () => {
         "",
       ].join("\n"),
     );
+  });
+
+  it("rejects a symlinked account config directory", async () => {
+    const workspace = await createWorkspace();
+    await mkdir(join(workspace, "accounts/source/gws"), { recursive: true });
+    await mkdir(join(workspace, "accounts/alias"), { recursive: true });
+    await symlink("../source/gws", join(workspace, "accounts/alias/gws"));
+    const fakeGws = await createFakeGws(workspace, "exit 0");
+
+    const result = run(workspace, ["run", "alias", "drive", "files", "list"], {
+      GWS_EXECUTABLE: fakeGws,
+    });
+
+    expect(result.status).toBe(77);
+    expect(result.stderr).toMatch(/unsafe account path/);
+  });
+
+  it("confirms calendar creation only for attendees other than the connected account", async () => {
+    const workspace = await createWorkspace();
+    const email = "person@example.com";
+    const added = run(workspace, [
+      "account",
+      "add",
+      email,
+      "--gmail=none",
+      "--drive=none",
+      "--calendar=manage",
+      "--no-login",
+    ]);
+    expect(added.status, added.stderr).toBe(0);
+    const slug = accountSlug(email);
+    const fakeGws = await createFakeGws(workspace, "exit 0");
+    const env = { GWS_EXECUTABLE: fakeGws };
+
+    const selfOnly = run(
+      workspace,
+      ["run", slug, "calendar", "+insert", "--attendees", "PERSON@example.com"],
+      env,
+    );
+    expect(selfOnly.status, selfOnly.stderr).toBe(0);
+
+    const external = run(
+      workspace,
+      ["run", slug, "calendar", "+insert", "--attendees", "other@example.com"],
+      env,
+    );
+    expect(external.status).toBe(77);
+    expect(external.stderr).toMatch(/explicit confirmation/);
   });
 });
 
@@ -247,5 +298,56 @@ describe("mgws account add", () => {
     expect(result.status).toBe(66);
     expect(result.stderr).toMatch(/must be a regular file, not a symlink/);
     expect((await lstat(externalClient)).mode & 0o777).toBe(0o644);
+  });
+
+  it("rejects a symlinked account directory", async () => {
+    const workspace = await createWorkspace();
+    const email = "person@example.com";
+    const slug = accountSlug(email);
+    const externalAccount = join(workspace, "external-account");
+    await mkdir(join(workspace, "accounts"));
+    await mkdir(externalAccount);
+    await symlink(externalAccount, join(workspace, "accounts", slug));
+
+    const result = run(workspace, [
+      "account",
+      "add",
+      email,
+      "--gmail=read",
+      "--drive=none",
+      "--calendar=none",
+      "--no-login",
+    ]);
+
+    expect(result.status).toBe(77);
+    expect(result.stderr).toMatch(/unsafe account path/);
+    await expect(lstat(join(externalAccount, "gws"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("rejects a symlinked access profile without overwriting its target", async () => {
+    const workspace = await createWorkspace();
+    const email = "person@example.com";
+    const slug = accountSlug(email);
+    const configDir = join(workspace, "accounts", slug, "gws");
+    const externalProfile = join(workspace, "external-access.json");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(externalProfile, "sentinel\n");
+    await symlink(externalProfile, join(configDir, "access.json"));
+
+    const result = run(workspace, [
+      "account",
+      "add",
+      email,
+      "--gmail=read",
+      "--drive=none",
+      "--calendar=none",
+      "--no-login",
+    ]);
+
+    expect(result.status).toBe(77);
+    expect(result.stderr).toMatch(/unsafe account path/);
+    expect(await readFile(externalProfile, "utf8")).toBe("sentinel\n");
   });
 });
