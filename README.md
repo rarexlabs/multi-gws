@@ -27,6 +27,9 @@ forwarded to the complete authorization process tree. Set
 `MGWS_OAUTH_TIMEOUT_MS` to a positive integer to override the timeout.
 
 `mgws` treats the current working directory as the workspace. Shared OAuth configuration belongs at `credentials/google-oauth-client.json`; account state is stored under `accounts/<account-slug>/gws/`.
+Account slugs use the normalized email when it is available, then add incrementing
+suffixes such as `-1` and `-2` only when another email already occupies that
+slug. Reconnecting the same email reuses its existing slug.
 
 ## Development
 

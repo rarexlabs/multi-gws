@@ -5,13 +5,12 @@ import {
   constants,
   lstatSync,
   mkdirSync,
-  readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, join, resolve } from "node:path";
-import { accountSlug } from "./account-add.js";
+import { readAccountProfile } from "./account-state.js";
 import { CliError, EXIT, errorCode } from "./errors.js";
 import { classifyGwsCommand } from "./gws-command-policy.js";
 
@@ -54,43 +53,6 @@ function isFile(path: string): boolean {
     if (errorCode(error) === "ENOENT") return false;
     throw error;
   }
-}
-
-function readAccountEmail(
-  configDir: string,
-  account: string,
-): string | undefined {
-  const accessProfile = join(configDir, "access.json");
-  let profileFile: ReturnType<typeof lstatSync>;
-  try {
-    profileFile = lstatSync(accessProfile);
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") return undefined;
-    throw error;
-  }
-  if (!profileFile.isFile() || profileFile.isSymbolicLink()) {
-    throw new CliError(
-      EXIT.noPermission,
-      `unsafe account path: ${accessProfile}`,
-    );
-  }
-
-  let profile: unknown;
-  try {
-    profile = JSON.parse(readFileSync(accessProfile, "utf8"));
-  } catch {
-    return undefined;
-  }
-  if (
-    typeof profile !== "object" ||
-    profile === null ||
-    !("email" in profile) ||
-    typeof profile.email !== "string" ||
-    accountSlug(profile.email) !== account
-  ) {
-    return undefined;
-  }
-  return profile.email;
 }
 
 function ensureRuntimeDirectory(path: string): void {
@@ -210,7 +172,7 @@ export function runGws({
 
   const policy = classifyGwsCommand(
     gwsArguments,
-    readAccountEmail(configDir, account),
+    readAccountProfile(configDir, account)?.email,
   );
   if (policy.action === "prohibit")
     throw new CliError(EXIT.noPermission, policy.reason);

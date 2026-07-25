@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { accountSlug } from "../src/account-add.js";
+import { accountSlug } from "../src/account-state.js";
 
 const cli = resolve("dist/cli.js");
 const workspaces: string[] = [];
@@ -220,7 +220,18 @@ describe("mgws run", () => {
 
   it("confirms calendar creation only for attendees other than the connected account", async () => {
     const workspace = await createWorkspace();
-    const email = "person@example.com";
+    const collidingEmail = "person+one@example.com";
+    const email = "person-one@example.com";
+    const collision = run(workspace, [
+      "account",
+      "add",
+      collidingEmail,
+      "--gmail=none",
+      "--drive=none",
+      "--calendar=manage",
+      "--no-login",
+    ]);
+    expect(collision.status, collision.stderr).toBe(0);
     const added = run(workspace, [
       "account",
       "add",
@@ -231,13 +242,21 @@ describe("mgws run", () => {
       "--no-login",
     ]);
     expect(added.status, added.stderr).toBe(0);
-    const slug = accountSlug(email);
+    const slug = added.stdout.match(/Account slug: (\S+)/)?.[1];
+    expect(slug).toBe(`${accountSlug(email)}-1`);
     const fakeGws = await createFakeGws(workspace, "exit 0");
     const env = { GWS_EXECUTABLE: fakeGws };
 
     const selfOnly = run(
       workspace,
-      ["run", slug, "calendar", "+insert", "--attendees", "PERSON@example.com"],
+      [
+        "run",
+        slug,
+        "calendar",
+        "+insert",
+        "--attendees",
+        "PERSON-ONE@example.com",
+      ],
       env,
     );
     expect(selfOnly.status, selfOnly.stderr).toBe(0);
@@ -289,16 +308,18 @@ describe("mgws account add", () => {
     expect(result.stderr).toMatch(/OAuth login timed out after 500ms/);
     const childPid = Number.parseInt(await readFile(childPidFile, "utf8"), 10);
     expect(isProcessAlive(childPid)).toBe(false);
-    await expect(
-      lstat(
-        join(
-          workspace,
-          "accounts",
-          accountSlug("person@example.com"),
-          "gws/access.json",
-        ),
-      ),
-    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    const retry = run(workspace, [
+      "account",
+      "add",
+      "person@example.com",
+      "--gmail=read",
+      "--drive=none",
+      "--calendar=none",
+      "--no-login",
+    ]);
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.stdout).toMatch(/Account slug: person-example-com\b/);
   });
 
   it("forwards termination to an in-progress OAuth login", async () => {
@@ -362,14 +383,24 @@ describe("mgws account add", () => {
 
     const plusAddress = add("a+b@example.com");
     const dashAddress = add("a-b@example.com");
+    const dotAddress = add("a.b@example.com");
+    const reconnectedPlusAddress = add("A+B@example.com");
     expect(plusAddress.status, plusAddress.stderr).toBe(0);
     expect(dashAddress.status, dashAddress.stderr).toBe(0);
+    expect(dotAddress.status, dotAddress.stderr).toBe(0);
+    expect(reconnectedPlusAddress.status, reconnectedPlusAddress.stderr).toBe(
+      0,
+    );
 
     const plusSlug = plusAddress.stdout.match(/Account slug: (\S+)/)?.[1];
     const dashSlug = dashAddress.stdout.match(/Account slug: (\S+)/)?.[1];
-    expect(plusSlug).toBeDefined();
-    expect(dashSlug).toBeDefined();
-    expect(plusSlug).not.toBe(dashSlug);
+    const dotSlug = dotAddress.stdout.match(/Account slug: (\S+)/)?.[1];
+    const reconnectedPlusSlug =
+      reconnectedPlusAddress.stdout.match(/Account slug: (\S+)/)?.[1];
+    expect(plusSlug).toBe("a-b-example-com");
+    expect(dashSlug).toBe("a-b-example-com-1");
+    expect(dotSlug).toBe("a-b-example-com-2");
+    expect(reconnectedPlusSlug).toBe(plusSlug);
 
     const accountDir = join(workspace, "accounts", plusSlug as string);
     const configDir = join(accountDir, "gws");
@@ -389,7 +420,8 @@ describe("mgws account add", () => {
     expect((await lstat(accountOauthClient)).isSymbolicLink()).toBe(false);
     expect((await lstat(accountOauthClient)).mode & 0o777).toBe(0o600);
     expect(accessProfile).toEqual({
-      email: "a+b@example.com",
+      slug: "a-b-example-com",
+      email: "A+B@example.com",
       gmail: "read",
       drive: "none",
       calendar: "manage",
@@ -422,7 +454,7 @@ describe("mgws account add", () => {
     expect((await lstat(externalClient)).mode & 0o777).toBe(0o644);
   });
 
-  it("rejects a symlinked account directory", async () => {
+  it("rejects a symlink occupying the preferred account slug", async () => {
     const workspace = await createWorkspace();
     const email = "person@example.com";
     const slug = accountSlug(email);

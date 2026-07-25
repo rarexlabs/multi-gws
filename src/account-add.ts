@@ -1,15 +1,9 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  chmodSync,
-  copyFileSync,
-  lstatSync,
-  mkdirSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, copyFileSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { AccountAccess } from "./account-permissions.js";
 import { resolveAccountScopes } from "./account-permissions.js";
+import { allocateAccountSlug, writeAccountProfile } from "./account-state.js";
 import { CliError, EXIT, errorCode } from "./errors.js";
 
 export interface AddAccountOptions extends AccountAccess {
@@ -228,33 +222,6 @@ function ensurePrivateDirectory(path: string): void {
   chmodSync(path, 0o700);
 }
 
-function ensureSafeFileIfPresent(path: string): void {
-  if (!pathExists(path)) return;
-
-  const file = lstatSync(path);
-  if (!file.isFile() || file.isSymbolicLink()) {
-    throw new CliError(EXIT.noPermission, `unsafe account path: ${path}`);
-  }
-}
-
-export function accountSlug(email: string): string {
-  const normalizedEmail = email.toLowerCase();
-  const readableSlug = normalizedEmail
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  if (readableSlug.length === 0) {
-    throw new CliError(
-      EXIT.usage,
-      `could not derive an account slug from: ${email}`,
-    );
-  }
-  const fingerprint = createHash("sha256")
-    .update(normalizedEmail)
-    .digest("base64url")
-    .slice(0, 16);
-  return `${readableSlug}-${fingerprint}`;
-}
-
 export async function addAccount({
   email,
   gmail,
@@ -267,15 +234,10 @@ export async function addAccount({
     throw new CliError(EXIT.usage, `invalid email address: ${email}`);
   }
   const scopes = resolveAccountScopes({ gmail, drive, calendar });
-  const slug = accountSlug(email);
   const root = resolve(workspaceRoot ?? process.cwd());
   const credentialsDir = join(root, "credentials");
   const oauthClient = join(credentialsDir, "google-oauth-client.json");
   const accountsDir = join(root, "accounts");
-  const accountDir = join(accountsDir, slug);
-  const configDir = join(accountDir, "gws");
-  const accountOauthClient = join(configDir, "client_secret.json");
-  const accessProfile = join(configDir, "access.json");
 
   if (!isFile(oauthClient)) {
     throw new CliError(
@@ -297,6 +259,10 @@ export async function addAccount({
   chmodSync(oauthClient, 0o600);
 
   ensurePrivateDirectory(accountsDir);
+  const slug = allocateAccountSlug(accountsDir, email);
+  const accountDir = join(accountsDir, slug);
+  const configDir = join(accountDir, "gws");
+  const accountOauthClient = join(configDir, "client_secret.json");
   ensurePrivateDirectory(accountDir);
   ensurePrivateDirectory(configDir);
 
@@ -314,30 +280,22 @@ export async function addAccount({
   }
   copyFileSync(oauthClient, accountOauthClient);
   chmodSync(accountOauthClient, 0o600);
-  ensureSafeFileIfPresent(accessProfile);
-
-  const saveAccessProfile = (): void => {
-    writeFileSync(
-      accessProfile,
-      `${JSON.stringify({ email, gmail, drive, calendar }, null, 2)}\n`,
-      {
-        mode: 0o600,
-      },
-    );
-    chmodSync(accessProfile, 0o600);
-  };
+  writeAccountProfile(configDir, {
+    slug,
+    email,
+    gmail,
+    drive,
+    calendar,
+  });
 
   console.log(`Account slug: ${slug}`);
   console.log(`Gmail access: ${gmail}`);
   console.log(`Drive access: ${drive}`);
   console.log(`Calendar access: ${calendar}`);
   if (!login) {
-    saveAccessProfile();
     console.log("Skipped OAuth login (--no-login).");
     return 0;
   }
 
-  const status = await runOauthLogin(root, slug, scopes);
-  if (status === 0) saveAccessProfile();
-  return status;
+  return runOauthLogin(root, slug, scopes);
 }
